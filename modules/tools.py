@@ -26,21 +26,28 @@ class Tools:
 
         return soup
 
-    def search_keywords(self, html_code, targets, tag='div'):
+    def search_keywords(self, html_code, targets, tag='div', attr=None):
+
         soup = self.html_cleaner(html_code)
         
         matching_elements = []
         seen_texts = set()
-        self.tag = tag
-        candidates = soup.find_all(self.tag)
+        candidates = soup.find_all(tag)
 
         potential_matches = []
         for element in candidates:
-            text_content = element.get_text(separator=' ', strip=True)
-            if not text_content:
+            if attr:
+                attr_value = element.get(attr, "")
+                if isinstance(attr_value, list):
+                    attr_value = " ".join(attr_value)
+                content_to_search = attr_value.lower()
+            else:
+                content_to_search = element.get_text(separator=' ', strip=True).lower()
+
+            if not content_to_search:
                 continue
                 
-            words_in_element = re.split(r'[ \-_,.;!?:()\[\]\n\r\t]', text_content.lower())
+            words_in_element = re.split(r'[ \-_,.;!?:()\[\]\n\r\t]', content_to_search)
             words_in_element = [w for w in words_in_element if w]
 
             if self._has_matching(words_in_element, targets):

@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 from modules import tools
 import config
 
-def run_agent(objective):
+def run_agent(objective, starter_url):
     with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
@@ -25,7 +25,7 @@ def run_agent(objective):
                 time.sleep(1)
                 DeepSeek.fill('input[placeholder*="Пароль"]', config.DS_PASS)
                 time.sleep(1)
-                DeepSeek.click('div[class*="ds-sign-up-form__register-button"]')
+                DeepSeek.get_by_text(re.compile(r"Войти|Log In", re.I)).first.click()
                 DeepSeek.wait_for_selector('textarea[placeholder*="DeepSeek"]', timeout=30000)
             except Exception as e:
                 print(f"Ошибка входа: {e}")
@@ -35,7 +35,7 @@ def run_agent(objective):
             context_target = browser.new_context()
             target = context_target.new_page()
 
-            target.goto("http://yugprint.ru", wait_until='domcontentloaded')
+            target.goto(starter_url, wait_until='domcontentloaded')
             found = False
             content = ""
             while not found:
@@ -69,11 +69,12 @@ def run_agent(objective):
                                 из доступных tools:
                                 1. search_elements - выполняет поиск по содержимому тегов. В качаестве parameters:
                                     keywords (обязательный) принимает на вход список слов, по каждому слову выполняется поиск элемента в коде. Слова указывай в инфинитиве и 1 раз, алгоритм в состоянии найти формы этих слов.
-                                    tags (обязательно) тут ты можешь указать 1 тег, в котором будут искать выбранные слова.
+                                    tag (обязательно) тут ты можешь указать 1 тег, в котором будут искать выбранные слова.
+                                    attr (опциональный) - имя атрибута для поиска (class, placeholder, id, name, title). Если не указан, поиск идет по тексту внутри тега, но помни, что если составляешь список слов для поиска внутри значений атрибута, то они вероятнее всего не будут написаны на русском. Максимум транслитом.
                                 2. full_code - в следующем сообщении будет приведён очищенный html код страницы для анализа, если инструменты не находят нужную информацию. Никаких параметров не принимает.
                                 3. go_to - позволяет перейти на страницу, которую ты укажешь. В качаестве parameters:
-                                    url (обязательный) адрес страницы, например https://example.com/example_page. Пожалуйста, постарайся игнорировать невалидные адреса страниц.
-                                ты можешь указывать несколько действий в одном json ответе.
+                                    url (обязательный) адрес страницы, например https://example.com/example_page. Пожалуйста, постарайся игнорировать невалидные адреса страниц.С
+                                ты можешь указывать несколько действий в одном json ответе. Если не получается найти нужную информацию, то прежде чем сдаться попробуй использовать go_to для перехода по другим ссылкам, встреченным на сайте.
                                 Здесь будет указываться результат прошлого запроса, если только это не начало диалога: {content}
                                 """
 
@@ -90,7 +91,7 @@ def run_agent(objective):
                         current_text = DeepSeek.locator('div.ds-markdown').last.inner_text()
                     if current_text == prev_text and len(current_text) > 15: break
                     prev_text = current_text
-                    time.sleep(1)
+                    time.sleep(2)
                 
                 result = tool.search_keywords(target.content(), current_text.lower().split(' '))
                 
@@ -104,7 +105,13 @@ def run_agent(objective):
                     elif data.get("status") == "acting":
                         for action in data["actions"]:
                             if action["tool"] == "search_elements":
-                                found_blocks = tool.search_keywords(target.content(), action["parameters"]["keywords"], action["parameters"]["tag"]) 
+                                params = action["parameters"]
+                                found_blocks = tool.search_keywords(
+                                        target.content(), 
+                                        params["keywords"], 
+                                        params["tag"],
+                                        params.get("attr")
+                                    ) 
                                 content = content + "\n" + "".join([str(div) for div in found_blocks])
                             elif action["tool"] == "full_code":
                                 content = tool.html_cleaner(target.content())
@@ -113,4 +120,4 @@ def run_agent(objective):
                                 target.goto(action["parameters"]["url"], wait_until='domcontentloaded')
                         
 
-run_agent("Найди мне таблицу с ценами на визитки. Игнорируй все .pdf файлы")
+run_agent("Найди мне таблицу с ценами на печать визиток без стоимости макетов. Игнорируй все .pdf файлы", "http://yugprint.ru")
