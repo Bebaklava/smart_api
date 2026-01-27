@@ -21,7 +21,7 @@ class Tools:
         for junk_tag in soup.find_all(junk_tags):
             junk_tag.decompose()
 
-        for hidden in soup.find_all(attrs={"style": re.compile(r'display:\s*none|visibility:\s*hidden')}):
+        for hidden in soup.find_all(attrs={"style": re.compile(r'display:\s*none|visibility:\s*hidden')})}:
             hidden.decompose()
 
         return soup
@@ -47,7 +47,7 @@ class Tools:
             if not content_to_search:
                 continue
                 
-            words_in_element = re.split(r'[ \-_,.;!?:()\[\]\n\r\t]', content_to_search)
+            words_in_element = re.split(r'[ \-_,.;!?:()[\]\n\r\t]', content_to_search)
             words_in_element = [w for w in words_in_element if w]
 
             if self._has_matching(words_in_element, targets):
@@ -77,3 +77,26 @@ class Tools:
                 if SequenceMatcher(None, target_lower, word).ratio() >= self.threshold:
                     return True
         return False
+
+    def click_element(self, page, selector):
+        try:
+            page.wait_for_selector(selector, state="visible", timeout=5000)
+            page.click(selector, timeout=5000)
+            return f"--- [КЛИК ПО: {selector}] ---"
+        except Exception as e:
+            return f"ОШИБКА КЛИКА ({selector}): {e}"
+
+    def fill_element(self, page, selector, text, config=None):
+        if text == "$LOGIN" and config:
+            text = config.DS_LOGIN
+        elif text == "$PASSWORD" and config:
+            text = config.DS_PASS
+        elif text == "$GMAIL_LOGIN" and config:
+            text = config.GMAIL_LOGIN
+        
+        try:
+            page.wait_for_selector(selector, state="visible", timeout=5000)
+            page.fill(selector, text, timeout=5000)
+            return f"--- [ВВОД В {selector}] ---"
+        except Exception as e:
+            return f"ОШИБКА ВВОДА ({selector}): {e}"
