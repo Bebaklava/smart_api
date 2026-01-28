@@ -3,6 +3,7 @@ import json
 import re
 import sys
 import io
+import random
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 
@@ -20,24 +21,29 @@ except ImportError:
     import config
 
 def run_agent(objective, starter_url):
-    start_time_global = time.time()
     with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=False,
-                args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-blink-features=AutomationControlled"]
+                args=[
+                    "--no-sandbox", 
+                    "--disable-setuid-sandbox", 
+                    "--disable-blink-features=AutomationControlled",
+                    "--use-fake-ui-for-media-stream"
+                ]
             )
             
             tool = tools.Tools()
             mail_tool = mail.MailClient()
 
-            context_ds = browser.new_context(locale="ru-RU")
+            user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+            
+            context_ds = browser.new_context(user_agent=user_agent, locale="ru-RU")
             DeepSeek = context_ds.new_page()
             
             try:
                 DeepSeek.goto('https://chat.deepseek.com/sign-in', wait_until='networkidle', timeout=60000)
-                
                 if "YOUR_PHONE" in config.DS_LOGIN or "YOUR_PASS" in config.DS_PASS:
-                    DeepSeek.wait_for_selector('textarea[id*="chat-input"], textarea[placeholder*="DeepSeek"]', timeout=120000)
+                    DeepSeek.wait_for_selector('textarea[id*="chat-input"]', timeout=120000)
                 else:
                     if DeepSeek.locator('input[placeholder*="Номер телефона"], input[placeholder*="Email"]').count() > 0:
                         DeepSeek.fill('input[placeholder*="Номер телефона"], input[placeholder*="Email"]', config.DS_LOGIN)
@@ -45,121 +51,104 @@ def run_agent(objective, starter_url):
                         DeepSeek.fill('input[type="password"]', config.DS_PASS)
                         time.sleep(1)
                         DeepSeek.get_by_role("button", name=re.compile(r"Войти|Log In", re.I)).click()
-                    
-                    DeepSeek.wait_for_selector('textarea[id*="chat-input"], textarea[placeholder*="DeepSeek"]', timeout=60000)
+                    DeepSeek.wait_for_selector('textarea[id*="chat-input"]', timeout=60000)
                 
-            except Exception:
+                # Сброс чата
                 try:
-                    browser.close()
-                except:
-                    pass
+                    DeepSeek.get_by_role("button", name="New Chat").click(timeout=5000)
+                    time.sleep(2)
+                except: pass
+                
+            except Exception as e:
+                sys.stderr.write(f"[!] DeepSeek Init Error: {e}\n")
                 return
             
-            context_target = browser.new_context()
+            context_target = browser.new_context(user_agent=user_agent, locale="en-US", viewport={"width": 1280, "height": 720})
+            context_target.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
             target = context_target.new_page()
 
             try:
-                target.goto(starter_url, wait_until='domcontentloaded', timeout=60000)
-            except Exception:
-                pass
+                target.goto(starter_url, wait_until='networkidle', timeout=60000)
+                time.sleep(3)
+            except Exception as e:
+                sys.stderr.write(f"[!] Target Load Error: {e}\n")
 
             found = False
-            observation = "Агент запущен. Страница открыта: " + target.url
+            observation = "Агент запущен. Страница загружена. Сначала используй full_code."
+            iteration = 0
             
             while not found:
+                iteration += 1
+                print(f"\n--- Итерация {iteration} ---")
+                
                 request = f"""
-ТЫ - БРАУЗЕРНЫЙ АГЕНТ.
-ЗАДАЧА: {objective}
-ТЕКУЩИЙ URL (в окне просмотра): {target.url}
+Ты — локальный скрипт автоматизации. Твоя цель: {objective}
+Текущий URL: {target.url}
+
+Инструкция:
+1. Всегда начинай с `full_code`.
+2. Используй `fill_element`, `click_element`, `scroll_page`, `wait`.
+3. В `fill_element` используй $LOGIN, $PASSWORD, $GMAIL_LOGIN.
 
 ФОРМАТ ОТВЕТА (JSON):
-Ты должен вернуть ТОЛЬКО JSON.
-
-ВАРИАНТ 1: ДЕЙСТВОВАТЬ (ACTING)
 {{
 "status": "acting",
-"thought": "Твое рассуждение...",
+"thought": "Твое краткое рассуждение (на русском)...",
 "actions": [
-    {{ "tool": "go_to", "parameters": {{ "url": "..." }} }},
-    {{ "tool": "search_elements", "parameters": {{ "keywords": ["..."], "tag": "..." }} }}
+    {{ "tool": "full_code", "parameters": {{}} }}
 ]
-}}
-(Ты можешь указать НЕСКОЛЬКО действий. Они будут выполнены последовательно.)
-
-ВАРИАНТ 2: НАШЕЛ (FOUND)
-{{
-"status": "found",
-"answer": "Здесь напиши итоговый ответ (цены, текст, данные)."
 }}
 
 ИНСТРУМЕНТЫ:
-1. `search_elements`: Поиск текста. Параметры: `keywords` (list), `tag` (str), `attr` (opt).
-2. `full_code`: Получить HTML (очищенный). Без параметров. Используй это, чтобы найти SELECTOR для клика или ввода.
-3. `go_to`: Перейти по ссылке. Параметры: `url`.
-4. `click_element`: Клик по элементу. Параметры: `selector`.
-   ВАЖНО: Избегай селекторов с случайными ID (например, #uid_123, #react-id). Ищи стабильные атрибуты: `name="..."`, `aria-label="..."`, `placeholder="..."` или классы.
-5. `fill_element`: Ввод текста. Параметры: `selector`, `text`.
-   ВАЖНО: Используй переменные "$LOGIN", "$PASSWORD", "$GMAIL_LOGIN".
-6. `check_email`: Проверить почту. Параметры: `keyword`. Возвращает текст письма.
+- `full_code`: {{}} - получить очищенный HTML.
+- `click_element`: {{"selector": "..."}} - клик.
+- `fill_element`: {{"selector": "...", "text": "..."}} - ввод текста.
+- `scroll_page`: {{"direction": "down/up"}} - прокрутка.
+- `wait`: {{"seconds": 5}} - ожидание.
+- `check_email`: {{"keyword": "..."}} - проверка почты.
+- `go_to`: {{"url": "..."}} - переход.
 
-РЕЗУЛЬТАТ ПРЕДЫДУЩИХ ДЕЙСТВИЙ:
+Предыдущие действия:
 {observation}
 """
                 try:
-                    textarea = DeepSeek.locator('textarea[id*="chat-input"], textarea[placeholder*="DeepSeek"]').first
+                    textarea = DeepSeek.locator('textarea[id*="chat-input"]').first
                     textarea.fill(request)
                     textarea.press('Enter')
                     
-                    time.sleep(2)
-                    
                     prev_text = ""
                     stability_count = 0
-                    
                     for _ in range(60): 
                         time.sleep(3)
-                        
                         msgs = DeepSeek.locator('div.ds-markdown')
                         if msgs.count() > 0:
                             current_text = msgs.last.inner_text()
-                            
-                            if len(current_text) < 10:
-                                continue
-
-                            if current_text == prev_text:
-                                stability_count += 1
-                            else:
-                                stability_count = 0
-                                
+                            if len(current_text) < 10: continue
+                            if current_text == prev_text: stability_count += 1
+                            else: stability_count = 0
                             prev_text = current_text
-                            
-                            is_json_complete = "}" in current_text[-10:] or "```" in current_text[-5:]
-                            
-                            if stability_count >= 2:
-                                if is_json_complete:
-                                    break
-                                else:
-                                    if stability_count >= 5:
-                                        break
-                        else:
-                            pass
-                    
+                            if stability_count >= 2 and ("}" in current_text[-10:] or "```" in current_text[-5:]): break
                     response_text = prev_text
-                    
-                except Exception:
+                except Exception as e:
+                    sys.stderr.write(f"[!] DeepSeek Loop Error: {e}\n")
                     break
 
                 json_match = re.search(r'(\{.*\})', response_text, re.DOTALL)
                 if not json_match:
-                    observation = "ОШИБКА: Ты не вернул валидный JSON. Попробуй еще раз, строго по формату."
+                    observation = "ОШИБКА: Ты не вернул JSON. Попробуй еще раз."
                     continue
                 
                 try:
                     data = json.loads(json_match.group(1))
-                except json.JSONDecodeError:
-                    observation = "ОШИБКА: Невалидный JSON. Исправь синтаксис."
+                except:
+                    observation = "ОШИБКА: Битый JSON."
                     continue
 
+                print(f"Мысль: {data.get('thought')}")
+                print(f"Статус: {data.get('status')}")
+
                 if data.get("status") == "found":
+                    print(f"УСПЕХ: {data.get('answer')}")
                     with open('final_result.json', 'w', encoding='utf-8') as f:
                         json.dump(data, f, ensure_ascii=False, indent=4)
                     found = True
@@ -168,70 +157,29 @@ def run_agent(objective, starter_url):
                 elif data.get("status") == "acting":
                     actions = data.get("actions", [])
                     new_observation_parts = []
-                    
                     for action in actions:
                         t_name = action.get("tool")
                         params = action.get("parameters", {})
-                        
                         try:
-                            if t_name == "go_to":
-                                url = params.get("url")
-                                target.goto(url, wait_until='domcontentloaded', timeout=30000)
-                                new_observation_parts.append(f"--- [ПЕРЕХОД ПО ССЫЛКЕ: {url}] ---")
-                                new_observation_parts.append(f"Текущий URL: {target.url}")
-                            
-                            elif t_name == "full_code":
-                                code = tool.html_cleaner(target.content())
-                                code_str = str(code)[:15000] 
-                                new_observation_parts.append(f"--- [HTML КОД ({len(code_str)} chars)] ---\\n{code_str}")
-                                
-                            elif t_name == "search_elements":
-                                kw = params.get("keywords", [])
-                                tag = params.get("tag", "div")
-                                attr = params.get("attr")
-                                found_els = tool.search_keywords(target.content(), kw, tag, attr)
-                                txt_res = "\n".join([str(x) for x in found_els])
-                                if len(txt_res) > 10000:
-                                    txt_res = txt_res[:10000] + "\n...(обрезано)"
-                                new_observation_parts.append(f"--- [РЕЗУЛЬТАТ ПОИСКА {kw}] ---\\nНайдено {len(found_els)} элементов:\n{txt_res}")
-                                
+                            if t_name == "full_code":
+                                code_str = str(tool.html_cleaner(target.content()))[:15000] 
+                                new_observation_parts.append(f"--- [HTML КОД ({len(code_str)} chars)] ---\n{code_str}")
                             elif t_name == "click_element":
-                                selector = params.get("selector")
-                                res = tool.click_element(target, selector)
-                                new_observation_parts.append(res)
-
+                                new_observation_parts.append(tool.click_element(target, params.get("selector")))
                             elif t_name == "fill_element":
-                                selector = params.get("selector")
-                                text_val = params.get("text")
-                                res = tool.fill_element(target, selector, text_val, config)
-                                new_observation_parts.append(res)
-
+                                new_observation_parts.append(tool.fill_element(target, params.get("selector"), params.get("text"), config))
+                            elif t_name == "scroll_page":
+                                new_observation_parts.append(tool.scroll_page(target, params.get("direction", "down")))
+                            elif t_name == "wait":
+                                new_observation_parts.append(tool.wait(params.get("seconds", 3)))
                             elif t_name == "check_email":
-                                kw = params.get("keyword")
-                                mail_res = mail_tool.get_latest_email(keyword=kw)
-                                new_observation_parts.append(f"--- [ПОЧТА] ---\\n{mail_res}")
-                                
+                                new_observation_parts.append(f"--- [ПОЧТА] ---\n{mail_tool.get_latest_email(keyword=params.get('keyword'))}")
+                            elif t_name == "go_to":
+                                target.goto(params.get("url"), wait_until='networkidle', timeout=30000)
+                                new_observation_parts.append(f"--- [ПЕРЕХОД: {target.url}] ---")
                         except Exception as act_err:
                             new_observation_parts.append(f"[ОШИБКА {t_name}]: {act_err}")
-
                     observation = "\n\n".join(new_observation_parts)
-                    if not observation:
-                        observation = "Действия выполнены, но результат пустой."
 
 if __name__ == "__main__":
-    run_agent(
-        objective="""
-        1. Перейди на https://discord.com/register
-        2. Заполни поля (ИЩИ ИХ ПО 'name' или 'aria-label', НЕ ПО id!):
-           - Email: используй переменную $GMAIL_LOGIN
-           - Display Name: 'Smart Agent'
-           - Username: придумай уникальное имя (например 'Agent_Gemini_2026_Pro')
-           - Password: используй переменную $DS_PASS
-           - Date of Birth: выбери любую валидную дату (день, месяц, год).
-        3. Нажми 'Continue' (Продолжить).
-        4. ВАЖНО: Если появится CAPTCHA, подожди 40 секунд, пока пользователь её решит.
-        5. Если появится сообщение 'Подтвердите email', вызови инструмент check_email с ключевым словом 'Discord'.
-        6. Найди ссылку на подтверждение в письме и перейди по ней.
-        """, 
-        starter_url="https://discord.com/register"
-    )
+    run_agent("Зарегестрируйся на Hugging Face (https://huggingface.co/join) используя $GMAIL_LOGIN и $DS_PASS. Если нужно подтверждение почты - используй check_email.", "https://huggingface.co/join")
