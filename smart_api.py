@@ -3,7 +3,6 @@ import json
 import re
 import sys
 import io
-import random
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 
@@ -24,17 +23,11 @@ def run_agent(objective, starter_url):
     with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=False,
-                args=[
-                    "--no-sandbox", 
-                    "--disable-setuid-sandbox", 
-                    "--disable-blink-features=AutomationControlled",
-                    "--use-fake-ui-for-media-stream"
-                ]
+                args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-blink-features=AutomationControlled"]
             )
             
             tool = tools.Tools()
             mail_tool = mail.MailClient()
-
             user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
             
             context_ds = browser.new_context(user_agent=user_agent, locale="ru-RU")
@@ -47,16 +40,12 @@ def run_agent(objective, starter_url):
                 else:
                     if DeepSeek.locator('input[placeholder*="Номер телефона"], input[placeholder*="Email"]').count() > 0:
                         DeepSeek.fill('input[placeholder*="Номер телефона"], input[placeholder*="Email"]', config.DS_LOGIN)
-                        time.sleep(1)
                         DeepSeek.fill('input[type="password"]', config.DS_PASS)
-                        time.sleep(1)
                         DeepSeek.get_by_role("button", name=re.compile(r"Войти|Log In", re.I)).click()
                     DeepSeek.wait_for_selector('textarea[id*="chat-input"]', timeout=60000)
                 
-                # Сброс чата
                 try:
-                    DeepSeek.get_by_role("button", name="New Chat").click(timeout=5000)
-                    time.sleep(2)
+                    DeepSeek.get_by_role("button", name="New Chat").click(timeout=3000)
                 except: pass
                 
             except Exception as e:
@@ -69,7 +58,6 @@ def run_agent(objective, starter_url):
 
             try:
                 target.goto(starter_url, wait_until='networkidle', timeout=60000)
-                time.sleep(3)
             except Exception as e:
                 sys.stderr.write(f"[!] Target Load Error: {e}\n")
 
@@ -82,34 +70,10 @@ def run_agent(objective, starter_url):
                 print(f"\n--- Итерация {iteration} ---")
                 
                 request = f"""
-Ты — локальный скрипт автоматизации. Твоя цель: {objective}
-Текущий URL: {target.url}
-
-Инструкция:
-1. Всегда начинай с `full_code`.
-2. Используй `fill_element`, `click_element`, `scroll_page`, `wait`.
-3. В `fill_element` используй $LOGIN, $PASSWORD, $GMAIL_LOGIN.
-
-ФОРМАТ ОТВЕТА (JSON):
-{{
-"status": "acting",
-"thought": "Твое краткое рассуждение (на русском)...",
-"actions": [
-    {{ "tool": "full_code", "parameters": {{}} }}
-]
-}}
-
-ИНСТРУМЕНТЫ:
-- `full_code`: {{}} - получить очищенный HTML.
-- `click_element`: {{"selector": "..."}} - клик.
-- `fill_element`: {{"selector": "...", "text": "..."}} - ввод текста.
-- `scroll_page`: {{"direction": "down/up"}} - прокрутка.
-- `wait`: {{"seconds": 5}} - ожидание.
-- `check_email`: {{"keyword": "..."}} - проверка почты.
-- `go_to`: {{"url": "..."}} - переход.
-
-Предыдущие действия:
-{observation}
+Ты — локальный скрипт автоматизации. Цель: {objective}
+Инструкция: 1. full_code. 2. fill_element, click_element, scroll_page, wait. 
+Используй $LOGIN, $PASSWORD, $GMAIL_LOGIN. Верни JSON.
+Предыдущие действия: {observation}
 """
                 try:
                     textarea = DeepSeek.locator('textarea[id*="chat-input"]').first
@@ -119,7 +83,7 @@ def run_agent(objective, starter_url):
                     prev_text = ""
                     stability_count = 0
                     for _ in range(60): 
-                        time.sleep(3)
+                        time.sleep(2) # Уменьшили до 2 сек
                         msgs = DeepSeek.locator('div.ds-markdown')
                         if msgs.count() > 0:
                             current_text = msgs.last.inner_text()
@@ -135,7 +99,7 @@ def run_agent(objective, starter_url):
 
                 json_match = re.search(r'(\{.*\})', response_text, re.DOTALL)
                 if not json_match:
-                    observation = "ОШИБКА: Ты не вернул JSON. Попробуй еще раз."
+                    observation = "ОШИБКА: Ты не вернул JSON."
                     continue
                 
                 try:

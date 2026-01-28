@@ -1,6 +1,5 @@
 import re
 import time
-import random
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup, Comment
 from difflib import SequenceMatcher
@@ -16,7 +15,7 @@ class Tools:
         junk_tags = ['script', 'style', 'video', 'audio', 'svg', 'iframe', 'noscript', 'link', 'meta', 'head', 'canvas', 'path']
         for junk_tag in soup.find_all(junk_tags):
             junk_tag.decompose()
-        for hidden in soup.find_all(attrs={"style": re.compile(r'display:\s*none|visibility:\s*hidden')}):
+        for hidden in soup.find_all(attrs={"style": re.compile(r'display:\s*none|visibility:\s*hidden')})}:
             hidden.decompose()
         return soup
 
@@ -60,12 +59,8 @@ class Tools:
 
     def click_element(self, page, selector):
         try:
-            page.wait_for_selector(selector, state="visible", timeout=10000)
-            # Двигаем мышку к элементу перед кликом (имитация человека)
-            el = page.locator(selector).first
-            el.hover()
-            time.sleep(random.uniform(0.2, 0.5))
-            el.click(timeout=5000)
+            page.wait_for_selector(selector, state="visible", timeout=5000)
+            page.click(selector, timeout=3000)
             return f"--- [КЛИК ПО: {selector}] ---"
         except Exception as e:
             return f"ОШИБКА КЛИКА ({selector}): {e}"
@@ -75,25 +70,16 @@ class Tools:
         elif text == "$PASSWORD" and config: text = config.DS_PASS
         elif text == "$GMAIL_LOGIN" and config: text = config.GMAIL_LOGIN
         try:
-            page.wait_for_selector(selector, state="visible", timeout=10000)
-            el = page.locator(selector).first
-            el.click() # Сначала кликаем в поле
-            el.fill("") # Очищаем
-            # Вводим посимвольно для обхода защит
-            for char in text:
-                page.keyboard.type(char)
-                time.sleep(random.uniform(0.05, 0.15))
+            page.wait_for_selector(selector, state="visible", timeout=5000)
+            page.fill(selector, text, timeout=3000)
             return f"--- [ВВОД В {selector}] ---"
         except Exception as e:
             return f"ОШИБКА ВВОДА ({selector}): {e}"
 
     def scroll_page(self, page, direction="down"):
         try:
-            if direction == "down":
-                page.evaluate("window.scrollBy(0, 500)")
-            else:
-                page.evaluate("window.scrollBy(0, -500)")
-            time.sleep(1)
+            val = 500 if direction == "down" else -500
+            page.evaluate(f"window.scrollBy(0, {val})")
             return f"--- [СКРОЛЛ: {direction}] ---"
         except Exception as e:
             return f"ОШИБКА СКРОЛЛА: {e}"
